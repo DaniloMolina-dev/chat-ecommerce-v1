@@ -1,101 +1,9 @@
 import React, { useState } from "react";
+import { products } from "./components/products.jsx";
 
-import product1Img from "./assets/images/black-sneakers-t.jpg";
-import product21Img from "./assets/images/green-sneakers-t.jpg";
 
-// Dummy product catalog with test images (picsum placeholders)
-const products = [
-  {
-    id: 1,
-    name: "Green Sneakers",
-    sku: "GS-001",
-    price: 89,
-    description: "Comfortable green sneakers for everyday use.",
-    image: product1Img, // placeholder for testing
-    categories: ["Shoes", "Sneakers", "Green", "Casual"],
-    tags: ["sneakers", "sport", "summer"],
-    attributes: [
-      { name: "Size", value: 42 },
-      { name: "Color", value: "Green" },
-      { name: "Material", value: "Mesh" }
-    ],
-    related: [2, 3], // IDs of related products
-    stock: 12,
-    onSale: false
-  },
-  {
-    id: 2,
-    name: "Blue Sneakers",
-    sku: "BS-002",
-    price: 92,
-    description: "Stylish blue sneakers for sporty looks.",
-    image: product21Img,
-    categories: ["Shoes", "Sneakers", "Blue", "Sport"],
-    tags: ["sneakers", "sport"],
-    attributes: [
-      { name: "Size", value: 43 },
-      { name: "Color", value: "Blue" },
-      { name: "Material", value: "Mesh" }
-    ],
-    related: [1, 3],
-    stock: 8,
-    onSale: true
-  },
-  {
-    id: 3,
-    name: "Red Running Shoes",
-    sku: "RR-003",
-    price: 110,
-    description: "Lightweight red running shoes for long-distance runs.",
-    image: product1Img,
-    categories: ["Shoes", "Running", "Red", "Sport"],
-    tags: ["running", "sport", "performance"],
-    attributes: [
-      { name: "Size", value: 41 },
-      { name: "Color", value: "Red" },
-      { name: "Material", value: "Mesh" }
-    ],
-    related: [1, 2, 4],
-    stock: 5,
-    onSale: false
-  },
-  {
-    id: 4,
-    name: "Black Casual Loafers",
-    sku: "BL-004",
-    price: 75,
-    description: "Elegant black loafers for daily wear.",
-    image: product1Img,
-    categories: ["Shoes", "Loafers", "Black", "Casual"],
-    tags: ["loafers", "casual", "office"],
-    attributes: [
-      { name: "Size", value: 42 },
-      { name: "Color", value: "Black" },
-      { name: "Material", value: "Leather" }
-    ],
-    related: [3, 5],
-    stock: 10,
-    onSale: true
-  },
-  {
-    id: 5,
-    name: "White Sports Sneakers",
-    sku: "WS-005",
-    price: 95,
-    description: "Versatile white sneakers perfect for gym and street.",
-    image: product1Img,
-    categories: ["Shoes", "Sneakers", "White", "Sport"],
-    tags: ["sneakers", "sport", "gym"],
-    attributes: [
-      { name: "Size", value: 44 },
-      { name: "Color", value: "White" },
-      { name: "Material", value: "Mesh" }
-    ],
-    related: [2, 4],
-    stock: 7,
-    onSale: false
-  }
-];
+
+
 
 
 export default function ProductChatbox() {
@@ -106,6 +14,7 @@ export default function ProductChatbox() {
   const [open, setOpen] = useState(false);
   const [productPopup, setProductPopup] = useState({ open: false, products: [] });
   const [showWelcome, setShowWelcome] = useState(true);
+  const [lastSearchTerm, setLastSearchTerm] = useState("");
 
   // Improved query parser: matches if ANY meaningful word from the query appears in product fields
   const stopWords = [
@@ -117,7 +26,7 @@ export default function ProductChatbox() {
     if (words.length === 0) return [];
 
     // Extract possible filters
-    let color = null, size = null, price = null;
+    let color = null, size = null, price = null, type = "";
     // Color: extract from attributes
     const colorSet = new Set(products.flatMap(p => p.attributes?.filter(a => a.name.toLowerCase() === "color").map(a => a.value.toString().toLowerCase()) || []));
     colorSet.forEach(c => { if (lowerQuery.includes(c)) color = c; });
@@ -133,6 +42,11 @@ export default function ProductChatbox() {
       const nameWords = p.name.toLowerCase().split(/\s+/);
       return nameWords.includes(word);
     }));
+    if (productTypeWords.length > 0) {
+      type = productTypeWords.join(" ");
+    } else if (lastSearchTerm) {
+      type = lastSearchTerm;
+    }
 
     return products.filter((p) => {
       // Must match all specified filters
@@ -145,21 +59,31 @@ export default function ProductChatbox() {
         if (!sizeAttr || sizeAttr.value.toString().toLowerCase() !== size) return false;
       }
       if (price && p.price.toString() !== price) return false;
-      // If productTypeWords are detected, require all to be present as whole words in the product name
-      if (productTypeWords.length > 0) {
+      // If type is set, require it to be present as a whole word in the product name
+      if (type) {
         const nameWords = p.name.toLowerCase().split(/\s+/);
-        if (!productTypeWords.every(typeWord => nameWords.includes(typeWord))) return false;
+        if (!type.split(" ").every(typeWord => nameWords.includes(typeWord))) return false;
       }
-      // Otherwise, match any remaining word in name, price, description, categories, tags, attributes
-      const searchable = [
-        p.name,
-        p.sku,
-        p.price,
-        p.description,
-        ...(p.categories || []),
-        ...(p.tags || []),
-        ...(p.attributes ? p.attributes.map(a => `${a.name} ${a.value}`) : [])
-      ].join(' ').toLowerCase();
+      // Build a dynamic searchable string from all fields except id and image
+      let searchableParts = [];
+      for (const key in p) {
+        if (key === "id" || key === "image") continue;
+        const value = p[key];
+        if (Array.isArray(value)) {
+          // Flatten arrays (categories, tags, attributes, related)
+          if (key === "attributes") {
+            searchableParts.push(...value.map(a => `${a.name} ${a.value}`));
+          } else {
+            searchableParts.push(...value.map(v => v.toString()));
+          }
+        } else if (typeof value === "object" && value !== null) {
+          // Flatten nested objects (if any)
+          searchableParts.push(JSON.stringify(value));
+        } else {
+          searchableParts.push(value.toString());
+        }
+      }
+      const searchable = searchableParts.join(' ').toLowerCase();
       return words.some((word) => searchable.includes(word));
     });
   };
@@ -172,6 +96,13 @@ export default function ProductChatbox() {
 
     // Search for products
     const results = searchProducts(input);
+
+    // Update lastSearchTerm if a product type was searched
+    const lowerInput = input.toLowerCase();
+    const typeWords = lowerInput.split(/\s+/).filter((word) => word && !stopWords.includes(word) && products.some(p => p.name.toLowerCase().split(/\s+/).includes(word)));
+    if (typeWords.length > 0) {
+      setLastSearchTerm(typeWords.join(" "));
+    }
 
     if (results.length > 0) {
       const label = results.length === 1 ? 'product' : 'products';
@@ -190,11 +121,59 @@ export default function ProductChatbox() {
       ]);
       setProductPopup({ open: true, products: results, label, count: results.length, query: input });
     } else {
-      setMessages((prev) => [
-        ...prev,
-        { sender: "bot", type: "text", text: "😔 Sorry, I couldn’t find an exact match. Maybe try another color or size?" },
-      ]);
-      setProductPopup({ open: false, products: [] });
+      // Try to find alternatives based on the last filter (e.g., size) and lastSearchTerm
+      let altResults = [];
+      let altLabel = "products";
+      let altText = "";
+      // Check for size filter
+      const sizeMatch = lowerInput.match(/size\s*(\d+|small|medium|large|xl|xxl|xs|s|m|l)/);
+      if (sizeMatch) {
+        const altSize = sizeMatch[1].toLowerCase();
+        altResults = products.filter(p => {
+          const sizeAttr = p.attributes?.find(a => a.name.toLowerCase() === "size");
+          if (lastSearchTerm) {
+            const nameWords = p.name.toLowerCase().split(/\s+/);
+            return sizeAttr && sizeAttr.value.toString().toLowerCase() === altSize && lastSearchTerm.split(" ").every(typeWord => nameWords.includes(typeWord));
+          } else {
+            return sizeAttr && sizeAttr.value.toString().toLowerCase() === altSize;
+          }
+        });
+        if (altResults.length > 0) {
+          altLabel = altResults.length === 1 ? "product" : "products";
+          // Build a dynamic message based on what the user searched for
+          let searchSummary = [];
+          if (sizeMatch) searchSummary.push(`size ${altSize}`);
+          // Dynamically extract color from the query using all colors present in product attributes
+          const allColors = Array.from(new Set(products.flatMap(p => p.attributes?.filter(a => a.name.toLowerCase() === "color").map(a => a.value.toString().toLowerCase()) || [])));
+          const foundColor = allColors.find(color => lowerInput.includes(color));
+          if (foundColor) searchSummary.push(foundColor);
+          if (lastSearchTerm) searchSummary.push(lastSearchTerm);
+          const summaryText = searchSummary.length > 0 ? searchSummary.join(' ') : 'your search';
+          altText = `Sorry, we don't have a product that matches that search, but here are some other ${summaryText} ${altLabel} you might like:`;
+        }
+      }
+      if (altResults.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "bot",
+            type: "text",
+            text: altText,
+            openPopup: true,
+            products: altResults,
+            label: altLabel,
+            count: altResults.length,
+            query: input,
+          },
+        ]);
+        setProductPopup({ open: true, products: altResults, label: altLabel, count: altResults.length, query: input });
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { sender: "bot", type: "text", text: "😔 Sorry, I couldn’t find an exact match. Maybe try another color or size?" },
+        ]);
+        setProductPopup({ open: false, products: [] });
+      }
     }
 
     setInput("");
