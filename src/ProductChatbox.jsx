@@ -1,65 +1,102 @@
 import React, { useState } from "react";
 
 import product1Img from "./assets/images/black-sneakers-t.jpg";
-/*
-import product2Img from "./assets/images/product2.jpg";
-import product3Img from "./assets/images/product3.jpg";
-import product4Img from "./assets/images/product4.jpg";
-import product5Img from "./assets/images/product5.jpg";
-*/
+import product21Img from "./assets/images/green-sneakers-t.jpg";
+
 // Dummy product catalog with test images (picsum placeholders)
 const products = [
   {
     id: 1,
     name: "Green Sneakers",
-    size: 42,
-    color: "green",
-    price: "89",
-  image: product1Img,
+    sku: "GS-001",
+    price: 89,
     description: "Comfortable green sneakers for everyday use.",
-    categories: ["shoes", "sneakers", "green", "casual"]
+    image: product1Img, // placeholder for testing
+    categories: ["Shoes", "Sneakers", "Green", "Casual"],
+    tags: ["sneakers", "sport", "summer"],
+    attributes: [
+      { name: "Size", value: 42 },
+      { name: "Color", value: "Green" },
+      { name: "Material", value: "Mesh" }
+    ],
+    related: [2, 3], // IDs of related products
+    stock: 12,
+    onSale: false
   },
   {
     id: 2,
-    name: "Blue Running Shoes",
-    size: 42,
-    color: "blue",
-    price: "99",
-  image: product1Img,
-    description: "Lightweight blue running shoes for athletes.",
-    categories: ["shoes", "running", "blue", "sports"]
+    name: "Blue Sneakers",
+    sku: "BS-002",
+    price: 92,
+    description: "Stylish blue sneakers for sporty looks.",
+    image: product21Img,
+    categories: ["Shoes", "Sneakers", "Blue", "Sport"],
+    tags: ["sneakers", "sport"],
+    attributes: [
+      { name: "Size", value: 43 },
+      { name: "Color", value: "Blue" },
+      { name: "Material", value: "Mesh" }
+    ],
+    related: [1, 3],
+    stock: 8,
+    onSale: true
   },
   {
     id: 3,
-    name: "Green Sandals",
-    size: 41,
-    color: "green",
-    price: "49",
-  image: product1Img,
-    description: "Breathable green sandals for summer.",
-    categories: ["sandals", "green", "summer", "casual"]
+    name: "Red Running Shoes",
+    sku: "RR-003",
+    price: 110,
+    description: "Lightweight red running shoes for long-distance runs.",
+    image: product1Img,
+    categories: ["Shoes", "Running", "Red", "Sport"],
+    tags: ["running", "sport", "performance"],
+    attributes: [
+      { name: "Size", value: 41 },
+      { name: "Color", value: "Red" },
+      { name: "Material", value: "Mesh" }
+    ],
+    related: [1, 2, 4],
+    stock: 5,
+    onSale: false
   },
   {
     id: 4,
-    name: "Black Sneakers",
-    size: 42,
-    color: "black",
-    price: "95",
-  image: product1Img,
-    description: "Classic black sneakers for all occasions.",
-    categories: ["shoes", "sneakers", "black", "sports"]
+    name: "Black Casual Loafers",
+    sku: "BL-004",
+    price: 75,
+    description: "Elegant black loafers for daily wear.",
+    image: product1Img,
+    categories: ["Shoes", "Loafers", "Black", "Casual"],
+    tags: ["loafers", "casual", "office"],
+    attributes: [
+      { name: "Size", value: 42 },
+      { name: "Color", value: "Black" },
+      { name: "Material", value: "Leather" }
+    ],
+    related: [3, 5],
+    stock: 10,
+    onSale: true
   },
   {
     id: 5,
-    name: "Red Sneakers",
-    size: 43,
-    color: "red",
-    price: "85",
-  image: product1Img,
-    description: "Stylish red sneakers to stand out.",
-    categories: ["shoes", "sneakers", "red", "fashion"]
-  },
+    name: "White Sports Sneakers",
+    sku: "WS-005",
+    price: 95,
+    description: "Versatile white sneakers perfect for gym and street.",
+    image: product1Img,
+    categories: ["Shoes", "Sneakers", "White", "Sport"],
+    tags: ["sneakers", "sport", "gym"],
+    attributes: [
+      { name: "Size", value: 44 },
+      { name: "Color", value: "White" },
+      { name: "Material", value: "Mesh" }
+    ],
+    related: [2, 4],
+    stock: 7,
+    onSale: false
+  }
 ];
+
 
 export default function ProductChatbox() {
   const [messages, setMessages] = useState([
@@ -81,10 +118,10 @@ export default function ProductChatbox() {
 
     // Extract possible filters
     let color = null, size = null, price = null;
-    // Color: dynamically extract all possible colors from products
-    const colorSet = new Set(products.map(p => p.color?.toLowerCase()).filter(Boolean));
+    // Color: extract from attributes
+    const colorSet = new Set(products.flatMap(p => p.attributes?.filter(a => a.name.toLowerCase() === "color").map(a => a.value.toString().toLowerCase()) || []));
     colorSet.forEach(c => { if (lowerQuery.includes(c)) color = c; });
-    // Size: look for 'size' followed by a number or word
+    // Size: extract from attributes
     const sizeMatch = lowerQuery.match(/size\s*(\d+|small|medium|large|xl|xxl|xs|s|m|l)/);
     if (sizeMatch) size = sizeMatch[1].toLowerCase();
     // Price: look for 'price' followed by a number
@@ -99,16 +136,30 @@ export default function ProductChatbox() {
 
     return products.filter((p) => {
       // Must match all specified filters
-      if (color && p.color?.toLowerCase() !== color) return false;
-      if (size && p.size?.toString().toLowerCase() !== size) return false;
-      if (price && p.price.replace(/[^\d.]/g, '') !== price) return false;
+      if (color) {
+        const colorAttr = p.attributes?.find(a => a.name.toLowerCase() === "color");
+        if (!colorAttr || colorAttr.value.toString().toLowerCase() !== color) return false;
+      }
+      if (size) {
+        const sizeAttr = p.attributes?.find(a => a.name.toLowerCase() === "size");
+        if (!sizeAttr || sizeAttr.value.toString().toLowerCase() !== size) return false;
+      }
+      if (price && p.price.toString() !== price) return false;
       // If productTypeWords are detected, require all to be present as whole words in the product name
       if (productTypeWords.length > 0) {
         const nameWords = p.name.toLowerCase().split(/\s+/);
         if (!productTypeWords.every(typeWord => nameWords.includes(typeWord))) return false;
       }
-      // Otherwise, match any remaining word in name, price, description, or categories
-      const searchable = `${p.name} ${p.price} ${p.description || ''} ${(p.categories || []).join(' ')}`.toLowerCase();
+      // Otherwise, match any remaining word in name, price, description, categories, tags, attributes
+      const searchable = [
+        p.name,
+        p.sku,
+        p.price,
+        p.description,
+        ...(p.categories || []),
+        ...(p.tags || []),
+        ...(p.attributes ? p.attributes.map(a => `${a.name} ${a.value}`) : [])
+      ].join(' ').toLowerCase();
       return words.some((word) => searchable.includes(word));
     });
   };
@@ -335,8 +386,8 @@ export default function ProductChatbox() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {productPopup.products.map((p) => (
                 <div key={p.id} className="bg-gray-100 border rounded-xl p-3 flex flex-col items-center transition-transform duration-200 hover:scale-105 hover:shadow-lg">
-                    <img src={p.image} alt={p.name} className="w-24 h-24 rounded-lg object-cover mb-2" />
-                    <div className="font-semibold text-center text-gray-500">{p.name}</div>
+                    <img src={p.image} alt={p.name} className="h-24 rounded-lg object-cover mb-2" />
+                    <div className="font-semibold text-center text-gray-500 flex items-center justify-center" style={{ minHeight: '2.5rem' }}>{p.name}</div>
                     <div className="text-gray-500 text-xs text-center">
                       {p.color ? p.color : ''}
                       {p.size ? (p.color ? ', ' : '') + `size ${p.size}` : ''}
