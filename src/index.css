@@ -1,3 +1,9 @@
+/* Better spacing for close-product-popup button */
+#close-product-popup {
+  margin-left: 8px;
+  margin-right: 4px;
+  padding: 0 6px;
+}
 @keyframes popup-in-key {
   0% {
     opacity: 0;
@@ -118,6 +124,21 @@
 
 .animate-fadein {
   animation: fadein 0.5s cubic-bezier(0.4,0,0.2,1) both;
+}
+
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /*
