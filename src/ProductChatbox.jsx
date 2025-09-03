@@ -1,12 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { products } from "./components/products.jsx";
 
 
-
-
-
-
 export default function ProductChatbox() {
+  const messagesEndRef = useRef(null);
   const [messages, setMessages] = useState([
     { sender: "bot", type: "text", text: "👋 Hi! What product are you looking for today?" },
   ]);
@@ -16,6 +13,12 @@ export default function ProductChatbox() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [lastSearchTerm, setLastSearchTerm] = useState("");
 
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, open]);
   // Improved query parser: matches if ANY meaningful word from the query appears in product fields
   const stopWords = [
     "i", "am", "is", "are", "was", "were", "be", "been", "being", "the", "a", "an", "and", "or", "but", "if", "then", "else", "for", "to", "of", "in", "on", "at", "by", "with", "about", "as", "into", "like", "through", "after", "over", "between", "out", "against", "during", "without", "before", "under", "around", "among", "looking", "searching", "find", "want", "need", "can", "could", "would", "should", "my", "your", "me"
@@ -106,12 +109,16 @@ export default function ProductChatbox() {
 
     if (results.length > 0) {
       const label = results.length === 1 ? 'product' : 'products';
+      // Extract main search terms (remove stop words)
+      const lowerInput = input.toLowerCase();
+      const mainTerms = lowerInput.split(/\s+/).filter((word) => word && !stopWords.includes(word));
+      const mainQuery = mainTerms.join(' ');
       setMessages((prev) => [
         ...prev,
         {
           sender: "bot",
           type: "text",
-          text: `Found ${results.length} ${label} for: "${input}". That might interest you!`,
+          text: `Found ${results.length} ${label} for: ${mainQuery || 'your search'}. That might interest you!`,
           openPopup: true,
           products: results,
           label,
@@ -140,16 +147,19 @@ export default function ProductChatbox() {
         });
         if (altResults.length > 0) {
           altLabel = altResults.length === 1 ? "product" : "products";
-          // Build a dynamic message based on what the user searched for
+          // Build a dynamic message based on what actually matches the alternative products
           let searchSummary = [];
-          if (sizeMatch) searchSummary.push(`size ${altSize}`);
-          // Dynamically extract color from the query using all colors present in product attributes
-          const allColors = Array.from(new Set(products.flatMap(p => p.attributes?.filter(a => a.name.toLowerCase() === "color").map(a => a.value.toString().toLowerCase()) || [])));
-          const foundColor = allColors.find(color => lowerInput.includes(color));
-          if (foundColor) searchSummary.push(foundColor);
+          // Only mention size if all altResults have that size
+          if (sizeMatch && altResults.every(p => {
+            const sizeAttr = p.attributes?.find(a => a.name.toLowerCase() === "size");
+            return sizeAttr && sizeAttr.value.toString().toLowerCase() === altSize;
+          })) {
+            searchSummary.push(`size ${altSize}`);
+          }
+          // Do not mention color in the fallback message (future-proof for many colors)
           if (lastSearchTerm) searchSummary.push(lastSearchTerm);
-          const summaryText = searchSummary.length > 0 ? searchSummary.join(' ') : 'your search';
-          altText = `Sorry, we don't have a product that matches that search, but here are some other ${summaryText} ${altLabel} you might like:`;
+          const summaryText = searchSummary.length > 0 ? searchSummary.join(' ') : 'options';
+          altText = `Sorry, we couldn't find an exact match for your search, but here are some other ${summaryText} you might like.`;
         }
       }
       if (altResults.length > 0) {
@@ -309,6 +319,7 @@ export default function ProductChatbox() {
                   </div>
                 </div>
               ))}
+              <div ref={messagesEndRef} />
             </div>
             <div className="p-2 border-t flex">
               <input
@@ -336,6 +347,7 @@ export default function ProductChatbox() {
         <div
           className={`fixed top-0 right-0 h-full w-96 max-w-full bg-white shadow-2xl z-30 flex flex-col transition-all duration-500 ${productPopup.open ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-20'} popup-anim popup-in`}
           style={{ boxShadow: '0 0 40px 0 rgba(0,0,0,0.2)', pointerEvents: 'auto' }}
+          onClick={() => setOpen(false)}
         >
           <div className="flex text-left justify-between p-4 border-b bg-blue-500">
             <span className="font-bold text-lg text-white">

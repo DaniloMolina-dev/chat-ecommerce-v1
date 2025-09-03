@@ -1,7 +1,8 @@
 import product1Img from "../assets/images/black-sneakers-t.jpg";
 import product21Img from "../assets/images/green-sneakers-t.jpg";
 
-export const products = [
+const allProducts = [
+  // ...existing product objects...
   {
     id: 1,
     name: "Green Sneakers",
@@ -183,3 +184,5 @@ export const products = [
     onSale: false
   }
 ];
+
+export const products = allProducts.filter(p => p.stock > 0);
