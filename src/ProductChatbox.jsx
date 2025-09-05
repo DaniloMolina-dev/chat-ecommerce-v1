@@ -10,6 +10,7 @@ export default function ProductChatbox() {
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const [productPopup, setProductPopup] = useState({ open: false, products: [] });
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' for lowest to highest, 'desc' for highest to lowest
   const [showWelcome, setShowWelcome] = useState(true);
   const [lastSearchTerm, setLastSearchTerm] = useState("");
 
@@ -28,46 +29,8 @@ export default function ProductChatbox() {
     const words = lowerQuery.split(/\s+/).filter((word) => word && !stopWords.includes(word));
     if (words.length === 0) return [];
 
-    // Extract possible filters
-    let color = null, size = null, price = null, type = "";
-    // Color: extract from attributes
-    const colorSet = new Set(products.flatMap(p => p.attributes?.filter(a => a.name.toLowerCase() === "color").map(a => a.value.toString().toLowerCase()) || []));
-    colorSet.forEach(c => { if (lowerQuery.includes(c)) color = c; });
-    // Size: extract from attributes
-    const sizeMatch = lowerQuery.match(/size\s*(\d+|small|medium|large|xl|xxl|xs|s|m|l)/);
-    if (sizeMatch) size = sizeMatch[1].toLowerCase();
-    // Price: look for 'price' followed by a number
-    const priceMatch = lowerQuery.match(/price\s*\$?(\d+)/);
-    if (priceMatch) price = priceMatch[1];
-
-    // Dynamically detect all product type words from query (all non-stopwords that match any product name)
-    const productTypeWords = words.filter(word => products.some(p => {
-      const nameWords = p.name.toLowerCase().split(/\s+/);
-      return nameWords.includes(word);
-    }));
-    if (productTypeWords.length > 0) {
-      type = productTypeWords.join(" ");
-    } else if (lastSearchTerm) {
-      type = lastSearchTerm;
-    }
-
+    // Fully dynamic: no hardcoded filters, just search all fields except id and image
     return products.filter((p) => {
-      // Must match all specified filters
-      if (color) {
-        const colorAttr = p.attributes?.find(a => a.name.toLowerCase() === "color");
-        if (!colorAttr || colorAttr.value.toString().toLowerCase() !== color) return false;
-      }
-      if (size) {
-        const sizeAttr = p.attributes?.find(a => a.name.toLowerCase() === "size");
-        if (!sizeAttr || sizeAttr.value.toString().toLowerCase() !== size) return false;
-      }
-      if (price && p.price.toString() !== price) return false;
-      // If type is set, require it to be present as a whole word in the product name
-      if (type) {
-        const nameWords = p.name.toLowerCase().split(/\s+/);
-        if (!type.split(" ").every(typeWord => nameWords.includes(typeWord))) return false;
-      }
-      // Build a dynamic searchable string from all fields except id and image
       let searchableParts = [];
       for (const key in p) {
         if (key === "id" || key === "image") continue;
@@ -97,14 +60,113 @@ export default function ProductChatbox() {
     // Add user message
     setMessages([...messages, { sender: "user", type: "text", text: input }]);
 
-    // Search for products
-    const results = searchProducts(input);
+    // --- Attribute pair detection, strict keyword filtering, and 'on sale' support ---
+    const filterWords = input.split(/\s+/).filter(w => w && !stopWords.includes(w.toLowerCase()));
+    const allAttrNames = Array.from(new Set(products.flatMap(p => (p.attributes || []).map(a => a.name.toLowerCase()))));
+    let attrPairs = [];
+    let usedIndexes = new Set();
+    for (let i = 0; i < filterWords.length - 1; i++) {
+      if (allAttrNames.includes(filterWords[i].toLowerCase())) {
+        attrPairs.push([filterWords[i], filterWords[i + 1]]);
+        usedIndexes.add(i);
+        usedIndexes.add(i + 1);
+      }
+    }
+    // Non-attribute keywords (e.g. 'red wine'), ignore 'on' if 'sale' or similar is present
+    const inputLower = input.toLowerCase();
+    const wordsLower = inputLower.split(/\s+/);
+    const isSaleQuery = (
+      (wordsLower.includes("on") && wordsLower.includes("sale")) ||
+      wordsLower.includes("sale") ||
+      wordsLower.includes("discount") ||
+      (wordsLower.includes("special") && wordsLower.includes("offer"))
+    );
+    // Remove sale-related words from nonAttrWords if isSaleQuery
+    const saleWordSet = new Set(["on", "sale", "discount", "special", "offer"]);
+    let nonAttrWords = filterWords.filter((word, idx) => {
+      if (usedIndexes.has(idx)) return false;
+      if (isSaleQuery && saleWordSet.has(word.toLowerCase())) return false;
+      return true;
+    });
+    if (attrPairs.length > 0 || nonAttrWords.length > 0 || isSaleQuery) {
+      let altResults = products.filter(p => {
+        // Must match all attribute pairs
+        if (attrPairs.length > 0) {
+          if (!p.attributes || !Array.isArray(p.attributes)) return false;
+          const hasAllAttrPairs = attrPairs.every(([attrName, attrValue]) =>
+            p.attributes.some(a => {
+              if (a.name.toLowerCase() !== attrName.toLowerCase()) return false;
+              const attrValStr = a.value.toString().toLowerCase();
+              const queryValStr = attrValue.toString().toLowerCase();
+              if (attrValStr === queryValStr) return true;
+              const attrValNum = Number(a.value);
+              const queryValNum = Number(attrValue);
+              if (!isNaN(attrValNum) && !isNaN(queryValNum) && attrValNum === queryValNum) return true;
+              return false;
+            })
+          );
+          if (!hasAllAttrPairs) return false;
+        }
+        // Must match all non-attribute keywords in name, categories, or tags
+        if (nonAttrWords.length > 0) {
+          const searchable = [p.name, ...(p.categories || []), ...(p.tags || [])].join(' ').toLowerCase();
+          // Plural/singular matching
+          const matchWord = (word) => {
+            word = word.toLowerCase();
+            if (searchable.includes(word)) return true;
+            // If plural, check singular
+            if (word.endsWith('s') && word.length > 2) {
+              const singular = word.slice(0, -1);
+              if (searchable.includes(singular)) return true;
+            }
+            // If singular, check plural
+            if (!word.endsWith('s')) {
+              const plural = word + 's';
+              if (searchable.includes(plural)) return true;
+            }
+            return false;
+          };
+          if (!nonAttrWords.every(matchWord)) return false;
+        }
+        // Must be on sale if 'on sale' keyword is present
+        if (isSaleQuery && !p.onSale) return false;
+        return true;
+      });
+      if (altResults.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "bot",
+            type: "text",
+            text: `Found ${altResults.length} product${altResults.length === 1 ? '' : 's'} for: ${input}. That might interest you!`,
+            openPopup: true,
+            products: altResults,
+            label: altResults.length === 1 ? 'product' : 'products',
+            count: altResults.length,
+            query: input,
+          },
+        ]);
+        setProductPopup({ open: true, products: altResults, label: altResults.length === 1 ? 'product' : 'products', count: altResults.length, query: input });
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { sender: "bot", type: "text", text: "😔 Sorry, I couldn’t find an exact match. Maybe try another search?" },
+        ]);
+        setProductPopup({ open: false, products: [] });
+      }
+      setInput("");
+      return;
+    }
 
-    // Update lastSearchTerm if a product type was searched
+    // --- Normal searchProducts logic for all other queries ---
+    const results = searchProducts(input);
+    // Track last product type if present in this search
     const lowerInput = input.toLowerCase();
     const typeWords = lowerInput.split(/\s+/).filter((word) => word && !stopWords.includes(word) && products.some(p => p.name.toLowerCase().split(/\s+/).includes(word)));
+    let newLastSearchTerm = lastSearchTerm;
     if (typeWords.length > 0) {
-      setLastSearchTerm(typeWords.join(" "));
+      newLastSearchTerm = typeWords.join(" ");
+      setLastSearchTerm(newLastSearchTerm);
     }
 
     if (results.length > 0) {
@@ -128,64 +190,51 @@ export default function ProductChatbox() {
       ]);
       setProductPopup({ open: true, products: results, label, count: results.length, query: input });
     } else {
-      // Try to find alternatives based on the last filter (e.g., size) and lastSearchTerm
-      let altResults = [];
-      let altLabel = "products";
-      let altText = "";
-      // Check for size filter
-      const sizeMatch = lowerInput.match(/size\s*(\d+|small|medium|large|xl|xxl|xs|s|m|l)/);
-      if (sizeMatch) {
-        const altSize = sizeMatch[1].toLowerCase();
-        altResults = products.filter(p => {
-          const sizeAttr = p.attributes?.find(a => a.name.toLowerCase() === "size");
-          if (lastSearchTerm) {
-            const nameWords = p.name.toLowerCase().split(/\s+/);
-            return sizeAttr && sizeAttr.value.toString().toLowerCase() === altSize && lastSearchTerm.split(" ").every(typeWord => nameWords.includes(typeWord));
-          } else {
-            return sizeAttr && sizeAttr.value.toString().toLowerCase() === altSize;
-          }
-        });
+      // Fallback: single value search (e.g., '42')
+      if (filterWords.length === 1) {
+        const attrValue = filterWords[0];
+        let altResults = products.filter(p =>
+          p.attributes && Array.isArray(p.attributes) &&
+          p.attributes.some(a => {
+            const attrValStr = a.value.toString().toLowerCase();
+            const queryValStr = attrValue.toString().toLowerCase();
+            if (attrValStr === queryValStr) return true;
+            const attrValNum = Number(a.value);
+            const queryValNum = Number(attrValue);
+            if (!isNaN(attrValNum) && !isNaN(queryValNum) && attrValNum === queryValNum) return true;
+            return false;
+          })
+        );
         if (altResults.length > 0) {
-          altLabel = altResults.length === 1 ? "product" : "products";
-          // Build a dynamic message based on what actually matches the alternative products
-          let searchSummary = [];
-          // Only mention size if all altResults have that size
-          if (sizeMatch && altResults.every(p => {
-            const sizeAttr = p.attributes?.find(a => a.name.toLowerCase() === "size");
-            return sizeAttr && sizeAttr.value.toString().toLowerCase() === altSize;
-          })) {
-            searchSummary.push(`size ${altSize}`);
-          }
-          // Do not mention color in the fallback message (future-proof for many colors)
-          if (lastSearchTerm) searchSummary.push(lastSearchTerm);
-          const summaryText = searchSummary.length > 0 ? searchSummary.join(' ') : 'options';
-          altText = `Sorry, we couldn't find an exact match for your search, but here are some other ${summaryText} you might like.`;
+          setMessages((prev) => [
+            ...prev,
+            {
+              sender: "bot",
+              type: "text",
+              text: `Found ${altResults.length} product${altResults.length === 1 ? '' : 's'} for: ${input}. That might interest you!`,
+              openPopup: true,
+              products: altResults,
+              label: altResults.length === 1 ? 'product' : 'products',
+              count: altResults.length,
+              query: input,
+            },
+          ]);
+          setProductPopup({ open: true, products: altResults, label: altResults.length === 1 ? 'product' : 'products', count: altResults.length, query: input });
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            { sender: "bot", type: "text", text: "😔 Sorry, I couldn’t find an exact match. Maybe try another search?" },
+          ]);
+          setProductPopup({ open: false, products: [] });
         }
-      }
-      if (altResults.length > 0) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            sender: "bot",
-            type: "text",
-            text: altText,
-            openPopup: true,
-            products: altResults,
-            label: altLabel,
-            count: altResults.length,
-            query: input,
-          },
-        ]);
-        setProductPopup({ open: true, products: altResults, label: altLabel, count: altResults.length, query: input });
       } else {
         setMessages((prev) => [
           ...prev,
-          { sender: "bot", type: "text", text: "😔 Sorry, I couldn’t find an exact match. Maybe try another color or size?" },
+          { sender: "bot", type: "text", text: "😔 Sorry, I couldn’t find an exact match. Maybe try another search?" },
         ]);
         setProductPopup({ open: false, products: [] });
       }
     }
-
     setInput("");
   };
 
@@ -345,8 +394,8 @@ export default function ProductChatbox() {
       {/* Product Popup */}
       {productPopup.open && (
         <div
-          className={`fixed top-0 right-0 h-full w-96 max-w-full bg-white shadow-2xl z-30 flex flex-col transition-all duration-500 ${productPopup.open ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-20'} popup-anim popup-in`}
-          style={{ boxShadow: '0 0 40px 0 rgba(0,0,0,0.2)', pointerEvents: 'auto' }}
+          className={`fixed top-0 right-0 h-full bg-white shadow-2xl z-30 flex flex-col transition-all duration-500 ${productPopup.open ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-20'} popup-anim popup-in`}
+          style={{ boxShadow: '0 0 40px 0 rgba(0,0,0,0.2)', pointerEvents: 'auto', maxWidth: '700px', width: '100vw' }}
           onClick={() => setOpen(false)}
         >
           <div className="flex text-left justify-between p-4 border-b bg-blue-500">
@@ -370,13 +419,37 @@ export default function ProductChatbox() {
               ×
             </button>
           </div>
+          {/* Sorting Dropdown: only show if more than one product */}
+          {productPopup.products && productPopup.products.length > 1 && (
+            <div className="flex items-center justify-end px-4 py-2 bg-gray-50 border-b">
+              <label htmlFor="sortOrder" className="mr-2 text-sm text-gray-600">Sort by price:</label>
+              <select
+                id="sortOrder"
+                value={sortOrder}
+                onChange={e => setSortOrder(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+                style={{ minWidth: '140px' }}
+              >
+                <option value="asc">Lowest to Highest</option>
+                <option value="desc">Highest to Lowest</option>
+              </select>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-4">
             {productPopup.products.length === 0 && (
               <div className="text-gray-500 text-center">No products found.</div>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {productPopup.products.map((p) => (
-                <div key={p.id} className="bg-gray-100 border rounded-xl p-3 flex flex-col items-center transition-transform duration-200 hover:scale-105 hover:shadow-lg">
+            <div
+              className="grid gap-4"
+              style={{
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                /* Default: 2 columns for mobile */
+              }}
+            >
+              {[...productPopup.products]
+                .sort((a, b) => sortOrder === 'asc' ? a.price - b.price : b.price - a.price)
+                .map((p) => (
+                  <div key={p.id} className="bg-gray-100 border rounded-xl p-3 flex flex-col items-center transition-transform duration-200 hover:scale-105 hover:shadow-lg">
                     <img src={p.image} alt={p.name} className="h-24 rounded-lg object-cover mb-2" />
                     <div className="font-semibold text-center text-gray-500 flex items-center justify-center" style={{ minHeight: '2.5rem' }}>{p.name}</div>
                     <div className="text-gray-500 text-xs text-center">
@@ -393,9 +466,22 @@ export default function ProductChatbox() {
                     >
                       View Product
                     </button>
-                </div>
-              ))}
+                  </div>
+                ))}
             </div>
+            {/* Responsive grid columns for tablet and desktop */}
+            <style>{`
+              @media (min-width: 640px) {
+                .popup-anim .grid {
+                  grid-template-columns: repeat(3, 1fr) !important;
+                }
+              }
+              @media (min-width: 900px) {
+                .popup-anim .grid {
+                  grid-template-columns: repeat(4, 1fr) !important;
+                }
+              }
+            `}</style>
           </div>
         </div>
       )}
